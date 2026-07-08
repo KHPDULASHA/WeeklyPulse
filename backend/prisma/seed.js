@@ -15,7 +15,27 @@ async function main() {
     create: { role_name: 'manager' }
   });
 
-  console.log('Seeded roles successfully.');
+  await prisma.project.upsert({
+    where: { project_name: 'Platform Refresh' },
+    update: {},
+    create: {
+      project_name: 'Platform Refresh',
+      description: 'Modernize the delivery experience',
+      status: 'active'
+    }
+  });
+
+  await prisma.project.upsert({
+    where: { project_name: 'Client Insights' },
+    update: {},
+    create: {
+      project_name: 'Client Insights',
+      description: 'Launch the new analytics workspace',
+      status: 'active'
+    }
+  });
+
+  console.log('Seeded roles and projects successfully.');
 }
 
 main()

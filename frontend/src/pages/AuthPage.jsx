@@ -10,31 +10,33 @@ export function AuthPage({ mode = 'login' }) {
   const [error, setError] = useState('');
 
   const {
-    register,
+    register: registerField,
     handleSubmit,
+    reset,
     formState: { errors, isSubmitting }
-  } = useForm();
+  } = useForm({
+    defaultValues: {
+      full_name: '',
+      email: '',
+      password: '',
+      role_name: 'team_member'
+    }
+  });
 
   const onSubmit = async (data) => {
     try {
       setError('');
-      if (formMode === 'login') {
-        await login({ email: data.email, password: data.password });
-      } else {
-        await registerUser({
-          full_name: data.full_name,
-          email: data.email,
-          password: data.password,
-          role_name: data.role_name
-        });
-      }
-      const nextRoute = (await (formMode === 'login' ? login({ email: data.email, password: data.password }) : registerUser({
-        full_name: data.full_name,
-        email: data.email,
-        password: data.password,
-        role_name: data.role_name
-      }))).role === 'manager' ? '/dashboard' : '/member/dashboard';
-      navigate(nextRoute);
+      const authUser = formMode === 'login'
+        ? await login({ email: data.email, password: data.password })
+        : await registerUser({
+            full_name: data.full_name,
+            email: data.email,
+            password: data.password,
+            role_name: data.role_name
+          });
+
+      reset({ full_name: '', email: '', password: '', role_name: 'team_member' });
+      navigate(authUser.role === 'manager' ? '/dashboard' : '/member/dashboard');
     } catch (err) {
       setError(err.response?.data?.error || 'Authentication failed');
     }
@@ -57,10 +59,10 @@ export function AuthPage({ mode = 'login' }) {
 
         <div className="flex-1 p-8 sm:p-12">
           <div className="mb-6 flex rounded-full border border-slate-800 bg-slate-950/70 p-1 text-sm">
-            <button type="button" onClick={() => setFormMode('login')} className={`flex-1 rounded-full px-4 py-2 transition ${formMode === 'login' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>
+            <button type="button" onClick={() => { setFormMode('login'); setError(''); reset({ full_name: '', email: '', password: '', role_name: 'team_member' }); }} className={`flex-1 rounded-full px-4 py-2 transition ${formMode === 'login' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>
               Login
             </button>
-            <button type="button" onClick={() => setFormMode('register')} className={`flex-1 rounded-full px-4 py-2 transition ${formMode === 'register' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>
+            <button type="button" onClick={() => { setFormMode('register'); setError(''); reset({ full_name: '', email: '', password: '', role_name: 'team_member' }); }} className={`flex-1 rounded-full px-4 py-2 transition ${formMode === 'register' ? 'bg-cyan-500 text-slate-950' : 'text-slate-300'}`}>
               Register
             </button>
           </div>
@@ -69,7 +71,7 @@ export function AuthPage({ mode = 'login' }) {
             {formMode === 'register' && (
               <div>
                 <input
-                  {...register('full_name', { required: 'Full name is required' })}
+                  {...registerField('full_name', { required: 'Full name is required' })}
                   className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 outline-none ring-0 transition focus:border-cyan-500"
                   placeholder="Full name"
                 />
@@ -79,7 +81,7 @@ export function AuthPage({ mode = 'login' }) {
 
             <div>
               <input
-                {...register('email', { required: 'Email is required', pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Enter a valid email' } })}
+                {...registerField('email', { required: 'Email is required', pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Enter a valid email' } })}
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 outline-none transition focus:border-cyan-500"
                 placeholder="Email address"
               />
@@ -89,7 +91,7 @@ export function AuthPage({ mode = 'login' }) {
             <div>
               <input
                 type="password"
-                {...register('password', { required: 'Password is required', minLength: { value: 6, message: 'Password must be at least 6 characters' } })}
+                {...registerField('password', { required: 'Password is required', minLength: { value: 6, message: 'Password must be at least 6 characters' } })}
                 className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 outline-none transition focus:border-cyan-500"
                 placeholder="Password"
               />
@@ -98,7 +100,7 @@ export function AuthPage({ mode = 'login' }) {
 
             {formMode === 'register' && (
               <div>
-                <select {...register('role_name')} className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 outline-none transition focus:border-cyan-500">
+                <select {...registerField('role_name')} className="w-full rounded-2xl border border-slate-700 bg-slate-950/80 px-4 py-3 outline-none transition focus:border-cyan-500">
                   <option value="team_member">Team Member</option>
                   <option value="manager">Manager</option>
                 </select>

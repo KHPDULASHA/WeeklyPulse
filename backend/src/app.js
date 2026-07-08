@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -9,6 +10,8 @@ import { authorizeRole, ROLE_NAMES } from './middleware/authorizeRole.js';
 import { env } from './utils/env.js';
 
 const app = express();
+const prisma = new PrismaClient();
+
 app.use(cors());
 app.use(express.json());
 
@@ -18,45 +21,6 @@ const roles = [
   { id: 1, role_name: 'team_member' },
   { id: 2, role_name: 'manager' }
 ];
-
-const state = {
-  users: [
-    {
-      id: 1,
-      full_name: 'Ava Chen',
-      email: 'ava@weeklypulse.dev',
-      password_hash: bcrypt.hashSync('password123', 10),
-      role_id: 2
-    },
-    {
-      id: 2,
-      full_name: 'Noah Patel',
-      email: 'noah@weeklypulse.dev',
-      password_hash: bcrypt.hashSync('password123', 10),
-      role_id: 1
-    }
-  ],
-  projects: [
-    { id: 1, project_name: 'Platform Refresh', description: 'Modernize the delivery experience', status: 'active' },
-    { id: 2, project_name: 'Client Insights', description: 'Launch the new analytics workspace', status: 'active' }
-  ],
-  reports: [
-    {
-      id: 1,
-      user_id: 2,
-      project_id: 1,
-      week_start: '2026-07-06',
-      week_end: '2026-07-12',
-      tasks_completed: 'Completed onboarding checklist and API integration',
-      tasks_planned: 'Prepare release notes and QA review',
-      blockers: 'None',
-      hours_worked: 38,
-      notes: 'Steady progress with the new dashboard imports.',
-      status: 'submitted',
-      submitted_at: '2026-07-13T10:00:00.000Z'
-    }
-  ]
-};
 
 function createToken(user) {
   const roleName = getRoleName(user.role_id);
@@ -109,131 +73,189 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'weeklypulse
 app.post('/api/auth/register', async (req, res) => {
   try {
     const parsed = registerSchema.parse(req.body);
-    const exists = state.users.some((user) => user.email === parsed.email);
-    if (exists) {
+    const existingUser = await prisma.user.findUnique({ where: { email: parsed.email } });
+    if (existingUser) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const roleId = parsed.role_name === 'manager' ? 2 : 1;
-    const user = {
-      id: state.users.length + 1,
-      full_name: parsed.full_name,
-      email: parsed.email,
-      password_hash: bcrypt.hashSync(parsed.password, 10),
-      role_id: roleId
-    };
+    const roleName = parsed.role_name === 'manager' ? 'manager' : 'team_member';
+    let role = await prisma.role.findUnique({ where: { role_name: roleName } });
+    if (!role) {
+      role = await prisma.role.create({ data: { role_name: roleName } });
+    }
 
-    state.users.push(user);
-    const token = createToken(user);
-    res.status(201).json({ token, user: { id: user.id, full_name: user.full_name, email: user.email, role: getRoleName(user.role_id) } });
+    const user = await prisma.user.create({
+      data: {
+        full_name: parsed.full_name,
+        email: parsed.email,
+        password_hash: bcrypt.hashSync(parsed.password, 10),
+        role_id: role.id
+      }
+    });
+
+    const token = createToken(user, role.role_name);
+    res.status(201).json({ token, user: { id: user.id, full_name: user.full_name, email: user.email, role: role.role_name } });
   } catch (error) {
     res.status(400).json({ error: error.errors || error.message });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const { email, password } = req.body;
-  const user = state.users.find((entry) => entry.email === email);
-  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: 'Invalid credentials' });
+  try {
+    const { email, password } = req.body;
+    const user = await prisma.user.findUnique({ where: { email }, include: { role: true } });
+    if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = createToken(user, user.role.role_name);
+    res.json({ token, user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role.role_name } });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
-
-  const token = createToken(user);
-  res.json({ token, user: { id: user.id, full_name: user.full_name, email: user.email, role: getRoleName(user.role_id) } });
 });
 
-app.get('/api/auth/me', authenticateToken, (req, res) => {
-  const user = state.users.find((entry) => entry.id === req.user.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, include: { role: true } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
 
-  res.json({ user: { id: user.id, full_name: user.full_name, email: user.email, role: getRoleName(user.role_id) } });
+    res.json({ user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role.role_name } });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-app.get('/api/projects', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), (_req, res) => {
-  res.json({ projects: state.projects });
+app.get('/api/projects', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), async (_req, res) => {
+  try {
+    const projects = await prisma.project.findMany({ orderBy: { id: 'asc' } });
+    res.json({ projects });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-app.post('/api/projects', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), (req, res) => {
-  const { project_name, description, status } = req.body;
-  if (!project_name) return res.status(400).json({ error: 'Project name is required' });
+app.post('/api/projects', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), async (req, res) => {
+  try {
+    const { project_name, description, status } = req.body;
+    if (!project_name) return res.status(400).json({ error: 'Project name is required' });
 
-  const project = {
-    id: state.projects.length + 1,
-    project_name,
-    description: description || '',
-    status: status || 'active'
-  };
-  state.projects.push(project);
-  res.status(201).json({ project });
+    const project = await prisma.project.create({
+      data: {
+        project_name,
+        description: description || null,
+        status: status || 'active'
+      }
+    });
+
+    res.status(201).json({ project });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-app.get('/api/reports', authenticateToken, (req, res) => {
-  const user = state.users.find((entry) => entry.id === req.user.id);
-  const visibleReports = user?.role_id === 2
-    ? state.reports
-    : state.reports.filter((report) => report.user_id === req.user.id);
+app.get('/api/reports', authenticateToken, async (req, res) => {
+  try {
+    const reports = await prisma.weeklyReport.findMany({
+      where: req.user.role === ROLE_NAMES.MANAGER ? {} : { user_id: req.user.id },
+      orderBy: { submitted_at: 'desc' },
+      include: { project: true, user: true }
+    });
 
-  res.json({ reports: visibleReports });
+    res.json({ reports });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-app.post('/api/reports', authenticateToken, authorizeRole(ROLE_NAMES.TEAM_MEMBER), (req, res) => {
+app.post('/api/reports', authenticateToken, authorizeRole(ROLE_NAMES.TEAM_MEMBER), async (req, res) => {
   try {
     const parsed = reportSchema.parse(req.body);
-    const report = {
-      id: state.reports.length + 1,
-      user_id: req.user.id,
-      ...parsed,
-      submitted_at: new Date().toISOString()
-    };
+    const project = await prisma.project.findUnique({ where: { id: parsed.project_id } });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
 
-    state.reports.push(report);
+    const report = await prisma.weeklyReport.create({
+      data: {
+        user_id: req.user.id,
+        project_id: parsed.project_id,
+        week_start: new Date(parsed.week_start),
+        week_end: new Date(parsed.week_end),
+        tasks_completed: parsed.tasks_completed,
+        tasks_planned: parsed.tasks_planned,
+        blockers: parsed.blockers || null,
+        hours_worked: parsed.hours_worked,
+        notes: parsed.notes || null,
+        status: parsed.status || 'draft'
+      },
+      include: { user: true, project: true }
+    });
+
     res.status(201).json({ report });
   } catch (error) {
     res.status(400).json({ error: error.errors || error.message });
   }
 });
 
-app.put('/api/reports/:id', authenticateToken, authorizeRole(ROLE_NAMES.TEAM_MEMBER, ROLE_NAMES.MANAGER), (req, res) => {
+app.put('/api/reports/:id', authenticateToken, authorizeRole(ROLE_NAMES.TEAM_MEMBER, ROLE_NAMES.MANAGER), async (req, res) => {
   try {
     const reportId = Number(req.params.id);
-    const report = state.reports.find((entry) => entry.id === reportId);
+    const existingReport = await prisma.weeklyReport.findUnique({ where: { id: reportId } });
 
-    if (!report) {
+    if (!existingReport) {
       return res.status(404).json({ error: 'Report not found' });
     }
 
-    if (req.user.role === ROLE_NAMES.TEAM_MEMBER && report.user_id !== req.user.id) {
+    if (req.user.role === ROLE_NAMES.TEAM_MEMBER && existingReport.user_id !== req.user.id) {
       return res.status(403).json({ error: 'You can only update your own reports' });
     }
 
     const parsed = reportUpdateSchema.parse(req.body);
-    const updatedReport = {
-      ...report,
-      ...parsed
-    };
+    const updatedReport = await prisma.weeklyReport.update({
+      where: { id: reportId },
+      data: {
+        project_id: parsed.project_id,
+        week_start: parsed.week_start ? new Date(parsed.week_start) : undefined,
+        week_end: parsed.week_end ? new Date(parsed.week_end) : undefined,
+        tasks_completed: parsed.tasks_completed,
+        tasks_planned: parsed.tasks_planned,
+        blockers: parsed.blockers,
+        hours_worked: parsed.hours_worked,
+        notes: parsed.notes,
+        status: parsed.status
+      },
+      include: { user: true, project: true }
+    });
 
-    state.reports = state.reports.map((entry) => (entry.id === reportId ? updatedReport : entry));
     res.json({ report: updatedReport });
   } catch (error) {
     res.status(400).json({ error: error.errors || error.message });
   }
 });
 
-app.get('/api/dashboard', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), (req, res) => {
-  const user = state.users.find((entry) => entry.id === req.user.id);
-  const reports = user?.role_id === 2 ? state.reports : state.reports.filter((report) => report.user_id === req.user.id);
-  const totalHours = reports.reduce((sum, report) => sum + report.hours_worked, 0);
-  const averageHours = reports.length ? Math.round(totalHours / reports.length) : 0;
+app.get('/api/dashboard', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), async (_req, res) => {
+  try {
+    const reports = await prisma.weeklyReport.findMany({
+      include: { user: true, project: true },
+      orderBy: { submitted_at: 'desc' }
+    });
+    const totalHours = reports.reduce((sum, report) => sum + Number(report.hours_worked), 0);
+    const averageHours = reports.length ? Math.round(totalHours / reports.length) : 0;
+    const activeProjects = await prisma.project.count({ where: { status: 'active' } });
 
-  res.json({
-    summary: {
-      total_reports: reports.length,
-      total_hours: totalHours,
-      average_hours: averageHours,
-      active_projects: state.projects.filter((project) => project.status === 'active').length
-    },
-    reports
-  });
+    res.json({
+      summary: {
+        total_reports: reports.length,
+        total_hours: totalHours,
+        average_hours: averageHours,
+        active_projects: activeProjects
+      },
+      reports
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
 app.use(errorHandler);

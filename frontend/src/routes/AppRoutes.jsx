@@ -1,16 +1,30 @@
 import { Route, Routes, Navigate } from 'react-router-dom';
 import { ProtectedRoute } from '../components/ProtectedRoute';
+import { useAuth } from '../context/AuthContext';
 import { AuthPage } from '../pages/AuthPage';
 import { CreateReportPage } from '../pages/CreateReportPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { EditReportPage } from '../pages/EditReportPage';
-import { HomePage } from '../pages/HomePage';
 import { MemberDashboardPage } from '../pages/MemberDashboardPage';
+
+function RootRoute() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center text-slate-300">Loading session...</div>;
+  }
+
+  if (!user) {
+    return <Navigate to="/auth/login" replace />;
+  }
+
+  return <Navigate to={user.role === 'manager' ? '/dashboard' : '/member/dashboard'} replace />;
+}
 
 export function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
+      <Route path="/" element={<RootRoute />} />
       <Route path="/auth/login" element={<AuthPage mode="login" />} />
       <Route path="/auth/register" element={<AuthPage mode="register" />} />
 
