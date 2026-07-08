@@ -1,0 +1,2 @@
+# WeeklyPulse
+Weekly report generator
