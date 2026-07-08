@@ -5,5 +5,6 @@ dotenv.config();
 export const env = {
   port: process.env.PORT || 5000,
   jwtSecret: process.env.JWT_SECRET || 'weeklypulse-dev-secret',
-  nodeEnv: process.env.NODE_ENV || 'development'
+  nodeEnv: process.env.NODE_ENV || 'development',
+  openAiApiKey: process.env.OPENAI_API_KEY || ''
 };
