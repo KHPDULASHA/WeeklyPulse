@@ -11,6 +11,8 @@ model Role {
   id        Int    @id @default(autoincrement())
   role_name String @unique
   users     User[]
+
+  @@map("roles")
 }
 
 model User {
@@ -21,6 +23,8 @@ model User {
   role_id       Int
   role          Role           @relation(fields: [role_id], references: [id])
   reports       WeeklyReport[]
+
+  @@map("users")
 }
 
 model Project {
@@ -29,6 +33,8 @@ model Project {
   description   String?
   status        String         @default("active")
   weeklyReports WeeklyReport[]
+
+  @@map("projects")
 }
 
 model WeeklyReport {
@@ -37,13 +43,15 @@ model WeeklyReport {
   project_id      Int
   week_start      DateTime
   week_end        DateTime
-  tasks_completed String
-  tasks_planned   String
-  blockers        String?
+  tasks_completed String   @db.Text
+  tasks_planned   String   @db.Text
+  blockers        String?  @db.Text
   hours_worked    Float
-  notes           String?
+  notes           String?  @db.Text
   status          String   @default("submitted")
   submitted_at    DateTime @default(now())
   user            User     @relation(fields: [user_id], references: [id])
   project         Project  @relation(fields: [project_id], references: [id])
+
+  @@map("weekly_reports")
 }

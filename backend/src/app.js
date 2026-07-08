@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { z } from 'zod';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { authorizeRole, ROLE_NAMES } from './middleware/authorizeRole.js';
 import { env } from './utils/env.js';
 
 const app = express();
@@ -58,7 +59,8 @@ const state = {
 };
 
 function createToken(user) {
-  return jwt.sign({ id: user.id, email: user.email, role_id: user.role_id }, env.jwtSecret, { expiresIn: '8h' });
+  const roleName = getRoleName(user.role_id);
+  return jwt.sign({ id: user.id, email: user.email, role_id: user.role_id, role: roleName }, env.jwtSecret, { expiresIn: '8h' });
 }
 
 function getRoleName(roleId) {
@@ -99,6 +101,8 @@ const reportSchema = z.object({
   notes: z.string().optional(),
   status: z.string().optional()
 });
+
+const reportUpdateSchema = reportSchema.partial();
 
 app.get('/health', (_req, res) => res.json({ status: 'ok', service: 'weeklypulse-api' }));
 
@@ -145,11 +149,11 @@ app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ user: { id: user.id, full_name: user.full_name, email: user.email, role: getRoleName(user.role_id) } });
 });
 
-app.get('/api/projects', authenticateToken, (_req, res) => {
+app.get('/api/projects', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), (_req, res) => {
   res.json({ projects: state.projects });
 });
 
-app.post('/api/projects', authenticateToken, (req, res) => {
+app.post('/api/projects', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), (req, res) => {
   const { project_name, description, status } = req.body;
   if (!project_name) return res.status(400).json({ error: 'Project name is required' });
 
@@ -172,7 +176,7 @@ app.get('/api/reports', authenticateToken, (req, res) => {
   res.json({ reports: visibleReports });
 });
 
-app.post('/api/reports', authenticateToken, (req, res) => {
+app.post('/api/reports', authenticateToken, authorizeRole(ROLE_NAMES.TEAM_MEMBER), (req, res) => {
   try {
     const parsed = reportSchema.parse(req.body);
     const report = {
@@ -189,7 +193,33 @@ app.post('/api/reports', authenticateToken, (req, res) => {
   }
 });
 
-app.get('/api/dashboard', authenticateToken, (req, res) => {
+app.put('/api/reports/:id', authenticateToken, authorizeRole(ROLE_NAMES.TEAM_MEMBER, ROLE_NAMES.MANAGER), (req, res) => {
+  try {
+    const reportId = Number(req.params.id);
+    const report = state.reports.find((entry) => entry.id === reportId);
+
+    if (!report) {
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    if (req.user.role === ROLE_NAMES.TEAM_MEMBER && report.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'You can only update your own reports' });
+    }
+
+    const parsed = reportUpdateSchema.parse(req.body);
+    const updatedReport = {
+      ...report,
+      ...parsed
+    };
+
+    state.reports = state.reports.map((entry) => (entry.id === reportId ? updatedReport : entry));
+    res.json({ report: updatedReport });
+  } catch (error) {
+    res.status(400).json({ error: error.errors || error.message });
+  }
+});
+
+app.get('/api/dashboard', authenticateToken, authorizeRole(ROLE_NAMES.MANAGER), (req, res) => {
   const user = state.users.find((entry) => entry.id === req.user.id);
   const reports = user?.role_id === 2 ? state.reports : state.reports.filter((report) => report.user_id === req.user.id);
   const totalHours = reports.reduce((sum, report) => sum + report.hours_worked, 0);
