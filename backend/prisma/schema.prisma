@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id        Int    @id @default(autoincrement())
+  role_name String @unique
+  users     User[]
+}
+
+model User {
+  id            Int            @id @default(autoincrement())
+  full_name     String
+  email         String         @unique
+  password_hash String
+  role_id       Int
+  role          Role           @relation(fields: [role_id], references: [id])
+  reports       WeeklyReport[]
+}
+
+model Project {
+  id            Int            @id @default(autoincrement())
+  project_name  String         @unique
+  description   String?
+  status        String         @default("active")
+  weeklyReports WeeklyReport[]
+}
+
+model WeeklyReport {
+  id              Int      @id @default(autoincrement())
+  user_id         Int
+  project_id      Int
+  week_start      DateTime
+  week_end        DateTime
+  tasks_completed String
+  tasks_planned   String
+  blockers        String?
+  hours_worked    Float
+  notes           String?
+  status          String   @default("submitted")
+  submitted_at    DateTime @default(now())
+  user            User     @relation(fields: [user_id], references: [id])
+  project         Project  @relation(fields: [project_id], references: [id])
+}
