@@ -1,14 +1,3 @@
-// import { AIAssistant } from './AiAssistantChat';
-
-// export function Layout({ children }) {
-//   return (
-//     <div className="min-h-screen bg-slate-950 text-slate-100">
-//       {children}
-//       <AIAssistant />
-//     </div>
-//   );
-// }
-
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { AIAssistant } from './AIAssistant';
