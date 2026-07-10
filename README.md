@@ -257,6 +257,9 @@ If an OpenAI API key is unavailable, the application provides meaningful fallbac
 * Environment variable configuration for sensitive credentials
 
 ---
+# 📍 Demo Video
+https://drive.google.com/drive/folders/1YHUnM6Nc127oHqXeXP1EdbUOQqRYOoMr?usp=drive_link
+---
 
 # 📈 Future Improvements
 
